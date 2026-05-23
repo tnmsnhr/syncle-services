@@ -1,7 +1,8 @@
+import "./loadEnv.js";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { config } from "./lib/config.js";
+import { config, warnIfPlaceholderGoogleCredentials } from "./lib/config.js";
 import { contextStore } from "./services/contextStore.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
@@ -44,6 +45,8 @@ app.onError((err, c) => {
   console.error("[syncle-services]", err);
   return c.json({ error: "Internal server error" }, 500);
 });
+
+warnIfPlaceholderGoogleCredentials();
 
 contextStore.start();
 

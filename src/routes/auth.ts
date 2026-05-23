@@ -1,12 +1,94 @@
 import { Hono } from "hono";
-import { config, isGoogleAuthConfigured } from "../lib/config.js";
+import {
+  config,
+  isGoogleAuthConfigured,
+  isGoogleOAuthFlowConfigured,
+} from "../lib/config.js";
 import { parseJsonBody } from "../lib/validate.js";
 import { googleSignInBodySchema } from "../types/auth.js";
 import { verifyGoogleAccessToken } from "../services/googleAuth.js";
 import { issueSessionToken, verifySessionToken } from "../services/sessionJwt.js";
+import {
+  buildGoogleAuthorizeUrl,
+  consumeOAuthState,
+  createOAuthState,
+  exchangeCodeForUser,
+  isAllowedExtensionRedirectUri,
+  pruneExpiredOAuthStates,
+} from "../services/googleOAuthFlow.js";
 import type { AuthVariables } from "../middleware/auth.js";
 
 export const authRoutes = new Hono<{ Variables: AuthVariables }>();
+
+authRoutes.get("/auth/status", (c) => {
+  const ready = isGoogleOAuthFlowConfigured();
+  return c.json({
+    /** Extension sign-in (launchWebAuthFlow) — requires client ID + secret. */
+    googleSignIn: ready,
+    browserOAuth: ready,
+  });
+});
+
+/** Start Google sign-in; extension opens this URL with launchWebAuthFlow. */
+authRoutes.get("/auth/google/start", (c) => {
+  if (!isGoogleOAuthFlowConfigured()) {
+    return c.html(
+      `<html><body><p>Google sign-in is not configured on the server.</p>
+      <p>Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and JWT_SECRET in syncle-services/.env</p></body></html>`,
+      503
+    );
+  }
+
+  const redirectUri = c.req.query("redirect_uri") ?? "";
+  if (!isAllowedExtensionRedirectUri(redirectUri)) {
+    return c.json({ error: "Invalid redirect_uri" }, 400);
+  }
+
+  pruneExpiredOAuthStates();
+  const state = createOAuthState(redirectUri);
+  return c.redirect(buildGoogleAuthorizeUrl(state));
+});
+
+/** Google redirects here after user approves. */
+authRoutes.get("/auth/google/callback", async (c) => {
+  if (!isGoogleOAuthFlowConfigured()) {
+    return c.text("Google OAuth not configured", 503);
+  }
+
+  const error = c.req.query("error");
+  if (error) {
+    const desc = c.req.query("error_description") ?? error;
+    return c.html(`<html><body><p>Sign-in failed: ${desc}</p></body></html>`, 400);
+  }
+
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  if (!code || !state) {
+    return c.text("Missing code or state", 400);
+  }
+
+  const extensionRedirect = consumeOAuthState(state);
+  if (!extensionRedirect) {
+    return c.text("Invalid or expired sign-in session", 400);
+  }
+
+  try {
+    const googleUser = await exchangeCodeForUser(code);
+    const token = await issueSessionToken(googleUser);
+    const final = new URL(extensionRedirect);
+    final.hash = new URLSearchParams({
+      token,
+      email: googleUser.email ?? "",
+    }).toString();
+    return c.redirect(final.toString());
+  } catch (err) {
+    console.error("[syncle-services] OAuth callback failed:", err);
+    return c.html(
+      "<html><body><p>Sign-in failed. Close this window and try again.</p></body></html>",
+      500
+    );
+  }
+});
 
 authRoutes.post("/auth/google", async (c) => {
   if (!isGoogleAuthConfigured()) {
