@@ -46,14 +46,11 @@ export interface RegisterSelectionContextResponse {
   selectionContextId: string;
 }
 
-export interface ChatStubResponse {
+/** Stable chat response — same shape for every AI vendor. */
+export interface ChatResponse {
   reply: string;
-  stub: true;
   pageContextId: string;
   selectionContextId: string;
-  summary: {
-    pageTitle?: string;
-    selectionText?: string;
-    canonicalUrl?: string;
-  };
+  provider: string;
+  model: string;
 }

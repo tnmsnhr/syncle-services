@@ -13,6 +13,7 @@ contextRoutes.post("/context/page/register", async (c) => {
   if (!parsed.ok) return parsed.response;
 
   const ids = contextStore.registerPage(parsed.data);
+  console.info("[syncle] POST /context/page/register →", ids.pageContextId);
   return c.json(ids, 201);
 });
 
@@ -25,5 +26,9 @@ contextRoutes.post("/context/selection/register", async (c) => {
     return c.json({ error: "pageContextId not found or expired" }, 404);
   }
 
+  console.info(
+    "[syncle] POST /context/selection/register →",
+    selectionContextId
+  );
   return c.json({ selectionContextId }, 201);
 });

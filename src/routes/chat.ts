@@ -1,10 +1,31 @@
 import { Hono } from "hono";
 import { contextStore } from "../services/contextStore.js";
-import { buildStubChatReply } from "../services/chatStub.js";
+import { runChat } from "../services/chatService.js";
 import { parseJsonBody } from "../lib/validate.js";
 import { chatBodySchema } from "../types/api.js";
+import { getChatProvider } from "../ai/factory.js";
+import { config, isOpenAiConfigured } from "../lib/config.js";
+import { ECHO_EXTRACTION_ONLY } from "../lib/aiMode.js";
 
 export const chatRoutes = new Hono();
+
+chatRoutes.get("/ai/status", (c) => {
+  if (ECHO_EXTRACTION_ONLY) {
+    return c.json({
+      provider: "echo",
+      configured: true,
+      openai: false,
+      echoExtractionOnly: true,
+    });
+  }
+  const provider = getChatProvider();
+  return c.json({
+    provider: provider.id,
+    configured: provider.isConfigured(),
+    openai: isOpenAiConfigured(),
+    echoExtractionOnly: config.echoExtractionOnly,
+  });
+});
 
 chatRoutes.post("/chat", async (c) => {
   const parsed = await parseJsonBody(c, chatBodySchema);
@@ -27,6 +48,24 @@ chatRoutes.post("/chat", async (c) => {
     );
   }
 
-  const response = buildStubChatReply(parsed.data, page, selection);
-  return c.json(response);
+  try {
+    console.info(
+      "[syncle] POST /chat",
+      parsed.data.pageContextId,
+      parsed.data.selectionContextId
+    );
+    const response = await runChat(parsed.data, page, selection);
+    console.info(
+      "[syncle] POST /chat →",
+      response.provider,
+      response.model,
+      ECHO_EXTRACTION_ONLY ? "(echo extraction)" : ""
+    );
+    return c.json(response);
+  } catch (err) {
+    console.error("[syncle-services] chat failed:", err);
+    const message =
+      err instanceof Error ? err.message : "Chat completion failed";
+    return c.json({ error: message }, 502);
+  }
 });

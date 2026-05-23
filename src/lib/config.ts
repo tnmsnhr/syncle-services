@@ -16,7 +16,17 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "dev-insecure-change-me",
   jwtTtlSec: Number(process.env.JWT_TTL_SEC ?? DEFAULT_JWT_TTL_SEC),
   authRequired: process.env.AUTH_REQUIRED === "true",
+  aiProvider: (process.env.AI_PROVIDER ?? "openai").toLowerCase(),
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  openaiChatModel: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini",
+  openaiMaxTokens: Number(process.env.OPENAI_MAX_TOKENS ?? 1024),
+  /** When true, /chat returns registered extraction only — no OpenAI call. */
+  echoExtractionOnly: process.env.ECHO_EXTRACTION_ONLY === "true",
 };
+
+export function isOpenAiConfigured(): boolean {
+  return Boolean(config.openaiApiKey && !/^sk-your/i.test(config.openaiApiKey));
+}
 
 /** Token exchange via access token (chrome.identity.getAuthToken). */
 export function isGoogleAuthConfigured(): boolean {
@@ -27,20 +37,22 @@ export function isGoogleAuthConfigured(): boolean {
 export function isGoogleOAuthFlowConfigured(): boolean {
   return Boolean(
     config.googleClientId &&
-      config.googleClientSecret &&
-      config.googleOAuthRedirectUri &&
-      config.jwtSecret &&
-      !isPlaceholderGoogleClientId(config.googleClientId) &&
-      !isPlaceholderGoogleSecret(config.googleClientSecret)
+    config.googleClientSecret &&
+    config.googleOAuthRedirectUri &&
+    config.jwtSecret &&
+    !isPlaceholderGoogleClientId(config.googleClientId) &&
+    !isPlaceholderGoogleSecret(config.googleClientSecret),
   );
 }
 
-const PLACEHOLDER_CLIENT_RE =
-  /your-client-id|REPLACE|example|xxx|changeme/i;
+const PLACEHOLDER_CLIENT_RE = /your-client-id|REPLACE|example|xxx|changeme/i;
 const PLACEHOLDER_SECRET_RE = /your-client-secret|REPLACE|example|changeme/i;
 
 export function isPlaceholderGoogleClientId(id: string): boolean {
-  return !id.endsWith(".apps.googleusercontent.com") || PLACEHOLDER_CLIENT_RE.test(id);
+  return (
+    !id.endsWith(".apps.googleusercontent.com") ||
+    PLACEHOLDER_CLIENT_RE.test(id)
+  );
 }
 
 export function isPlaceholderGoogleSecret(secret: string): boolean {
@@ -50,12 +62,12 @@ export function isPlaceholderGoogleSecret(secret: string): boolean {
 export function warnIfPlaceholderGoogleCredentials(): void {
   if (isPlaceholderGoogleClientId(config.googleClientId)) {
     console.warn(
-      "[syncle-services] GOOGLE_CLIENT_ID is still a placeholder in .env — Google sign-in will fail with invalid_client. See docs/AUTH.md"
+      "[syncle-services] GOOGLE_CLIENT_ID is still a placeholder in .env — Google sign-in will fail with invalid_client. See docs/AUTH.md",
     );
   }
   if (isPlaceholderGoogleSecret(config.googleClientSecret)) {
     console.warn(
-      "[syncle-services] GOOGLE_CLIENT_SECRET is still a placeholder in .env"
+      "[syncle-services] GOOGLE_CLIENT_SECRET is still a placeholder in .env",
     );
   }
 }

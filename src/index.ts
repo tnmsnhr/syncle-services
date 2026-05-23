@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { config, warnIfPlaceholderGoogleCredentials } from "./lib/config.js";
+import { ECHO_EXTRACTION_ONLY } from "./lib/aiMode.js";
 import { contextStore } from "./services/contextStore.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
@@ -47,6 +48,12 @@ app.onError((err, c) => {
 });
 
 warnIfPlaceholderGoogleCredentials();
+
+if (ECHO_EXTRACTION_ONLY) {
+  console.warn(
+    "[syncle-services] ECHO_EXTRACTION_ONLY=true — /chat returns registered extraction (OpenAI disabled)"
+  );
+}
 
 contextStore.start();
 
