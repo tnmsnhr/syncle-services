@@ -167,3 +167,4 @@ src/
   types/                # Zod schemas & response types
   lib/                  # config, IDs, validation helpers
 ```
+# syncle-services
