@@ -2,6 +2,7 @@
 
 export type SelectionShape =
   | "short_inline_selection"
+  | "multi_line_text_selection"
   | "long_text_selection"
   | "code_like_selection"
   | "visual_selection"
@@ -21,6 +22,7 @@ export interface ClassifySelectionShapeInput {
   elementTypes: string[];
   hasVisual: boolean;
   hasTableContext?: boolean;
+  isMultiLine?: boolean;
 }
 
 const LONG_TEXT_CHAR_MIN = 250;
@@ -47,6 +49,7 @@ const AUTO_EXPLAIN_MARKERS: Array<string | RegExp> = [
 
 const VALID_SHAPES = new Set<SelectionShape>([
   "short_inline_selection",
+  "multi_line_text_selection",
   "long_text_selection",
   "code_like_selection",
   "visual_selection",
@@ -56,6 +59,7 @@ const VALID_SHAPES = new Set<SelectionShape>([
 
 const LEGACY_TO_SHAPE: Record<string, SelectionShape> = {
   short_inline_selection: "short_inline_selection",
+  multi_line_text_selection: "multi_line_text_selection",
   long_text_selection: "long_text_selection",
   code_like_selection: "code_like_selection",
   visual_selection: "visual_selection",
@@ -95,6 +99,8 @@ export function defaultUserMessageForShape(
     : "the selection";
 
   switch (shape) {
+    case "multi_line_text_selection":
+      return "Explain the selected passages across the highlighted lines.";
     case "long_text_selection":
       return "Summarize or explain the selected text clearly.";
     case "visual_selection":
@@ -165,6 +171,9 @@ export function classifySelectionShape(
   if (table) return "structured_data_selection";
   if (text && looksCodeLike(text)) return "code_like_selection";
   if (text && isLongTextSelection(text)) return "long_text_selection";
+  if (input.isMultiLine && hasMeaningfulText(text)) {
+    return "multi_line_text_selection";
+  }
   return "short_inline_selection";
 }
 

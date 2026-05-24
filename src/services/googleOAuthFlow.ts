@@ -14,16 +14,29 @@ const STATE_TTL_MS = 10 * 60 * 1000;
 
 export { isGoogleOAuthFlowConfigured };
 
-/** Redirect targets Chrome returns from launchWebAuthFlow. */
-export function isAllowedExtensionRedirectUri(uri: string): boolean {
+/** Redirect targets after Google OAuth (extension or dashboard). */
+export function isAllowedOAuthRedirectUri(uri: string): boolean {
   if (uri.startsWith("chrome-extension://")) return true;
   try {
     const url = new URL(uri);
-    return url.hostname.endsWith(".chromiumapp.org");
+    if (url.hostname.endsWith(".chromiumapp.org")) return true;
+    if (
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1"
+    ) {
+      return (
+        url.pathname === "/login/callback" ||
+        url.pathname.endsWith("/login/callback")
+      );
+    }
   } catch {
     return false;
   }
+  return false;
 }
+
+/** @deprecated Use isAllowedOAuthRedirectUri */
+export const isAllowedExtensionRedirectUri = isAllowedOAuthRedirectUri;
 
 function oauthClient(): OAuth2Client {
   return new OAuth2Client(

@@ -7,25 +7,27 @@ export type AuthVariables = {
 };
 
 export async function requireAuth(c: Context, next: Next): Promise<Response | void> {
-  if (!config.authRequired) {
-    return next();
-  }
-
   const header = c.req.header("Authorization");
-  if (!header?.startsWith("Bearer ")) {
+  const token = header?.startsWith("Bearer ")
+    ? header.slice("Bearer ".length).trim()
+    : "";
+
+  if (token) {
+    try {
+      const user = await verifySessionToken(token);
+      c.set("user", user);
+      await next();
+      return;
+    } catch {
+      if (config.authRequired) {
+        return c.json({ error: "Invalid or expired session" }, 401);
+      }
+    }
+  }
+
+  if (config.authRequired) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  const token = header.slice("Bearer ".length).trim();
-  if (!token) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  try {
-    const user = await verifySessionToken(token);
-    c.set("user", user);
-    await next();
-  } catch {
-    return c.json({ error: "Invalid or expired session" }, 401);
-  }
+  await next();
 }

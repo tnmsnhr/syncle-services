@@ -13,7 +13,7 @@ import {
   consumeOAuthState,
   createOAuthState,
   exchangeCodeForUser,
-  isAllowedExtensionRedirectUri,
+  isAllowedOAuthRedirectUri,
   pruneExpiredOAuthStates,
 } from "../services/googleOAuthFlow.js";
 import type { AuthVariables } from "../middleware/auth.js";
@@ -30,6 +30,25 @@ authRoutes.get("/auth/status", (c) => {
 });
 
 /** Start Google sign-in; extension opens this URL with launchWebAuthFlow. */
+/** Dashboard sign-in — redirects back to DASHBOARD_ORIGIN/login/callback with JWT in hash. */
+authRoutes.get("/auth/google/dashboard/start", (c) => {
+  if (!isGoogleOAuthFlowConfigured()) {
+    return c.json(
+      {
+        error: "Google sign-in not configured",
+        hint: "Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, JWT_SECRET in .env",
+      },
+      503
+    );
+  }
+
+  pruneExpiredOAuthStates();
+  // Must not be under /auth/* — Vite dev proxy forwards /auth to this API.
+  const callback = `${config.dashboardOrigin.replace(/\/$/, "")}/login/callback`;
+  const state = createOAuthState(callback);
+  return c.redirect(buildGoogleAuthorizeUrl(state));
+});
+
 authRoutes.get("/auth/google/start", (c) => {
   if (!isGoogleOAuthFlowConfigured()) {
     return c.html(
@@ -40,7 +59,7 @@ authRoutes.get("/auth/google/start", (c) => {
   }
 
   const redirectUri = c.req.query("redirect_uri") ?? "";
-  if (!isAllowedExtensionRedirectUri(redirectUri)) {
+  if (!isAllowedOAuthRedirectUri(redirectUri)) {
     return c.json({ error: "Invalid redirect_uri" }, 400);
   }
 

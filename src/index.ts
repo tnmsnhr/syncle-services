@@ -5,10 +5,12 @@ import { cors } from "hono/cors";
 import { config, warnIfPlaceholderGoogleCredentials } from "./lib/config.js";
 import { ECHO_EXTRACTION_ONLY } from "./lib/aiMode.js";
 import { contextStore } from "./services/contextStore.js";
+import { initUserDataPersistence, flushUserData } from "./services/userDataPersistence.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { contextRoutes } from "./routes/context.js";
 import { chatRoutes } from "./routes/chat.js";
+import { apiRoutes } from "./routes/api.js";
 import { requireAuth } from "./middleware/auth.js";
 
 function isAllowedOrigin(origin: string): boolean {
@@ -27,7 +29,7 @@ app.use(
       if (!origin) return "*";
       return isAllowedOrigin(origin) ? origin : "";
     },
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -37,6 +39,8 @@ app.route("/", authRoutes);
 
 app.use("/context/*", requireAuth);
 app.use("/chat", requireAuth);
+app.use("/api/*", requireAuth);
+app.route("/api", apiRoutes);
 app.route("/", contextRoutes);
 app.route("/", chatRoutes);
 
@@ -55,6 +59,7 @@ if (ECHO_EXTRACTION_ONLY) {
   );
 }
 
+await initUserDataPersistence();
 contextStore.start();
 
 const server = serve(
@@ -67,8 +72,9 @@ const server = serve(
   }
 );
 
-function shutdown(): void {
+async function shutdown(): Promise<void> {
   contextStore.stop();
+  await flushUserData();
   server.close();
   process.exit(0);
 }

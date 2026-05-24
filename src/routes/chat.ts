@@ -6,8 +6,11 @@ import { chatBodySchema } from "../types/api.js";
 import { getChatProvider } from "../ai/factory.js";
 import { config, isOpenAiConfigured } from "../lib/config.js";
 import { ECHO_EXTRACTION_ONLY } from "../lib/aiMode.js";
+import { buildSummaryFromChat } from "../services/summaryFromContext.js";
+import { summaryStore } from "../services/summaryStore.js";
+import type { AuthVariables } from "../middleware/auth.js";
 
-export const chatRoutes = new Hono();
+export const chatRoutes = new Hono<{ Variables: AuthVariables }>();
 
 chatRoutes.get("/ai/status", (c) => {
   if (ECHO_EXTRACTION_ONLY) {
@@ -49,18 +52,26 @@ chatRoutes.post("/chat", async (c) => {
   }
 
   try {
-    console.info(
-      "[syncle] POST /chat",
-      parsed.data.pageContextId,
-      parsed.data.selectionContextId
-    );
     const response = await runChat(parsed.data, page, selection);
-    console.info(
-      "[syncle] POST /chat →",
-      response.provider,
-      response.model,
-      ECHO_EXTRACTION_ONLY ? "(echo extraction)" : ""
-    );
+
+    // Summaries from AI chat only when OpenAI is enabled
+    if (!ECHO_EXTRACTION_ONLY) {
+      const user = c.get("user");
+      if (user) {
+        const partial = buildSummaryFromChat(
+          user.sub,
+          page,
+          selection,
+          parsed.data.message,
+          response.reply
+        );
+        await summaryStore.upsertFromChat(user.sub, {
+          ...partial,
+          userMessage: parsed.data.message,
+        });
+      }
+    }
+
     return c.json(response);
   } catch (err) {
     console.error("[syncle-services] chat failed:", err);

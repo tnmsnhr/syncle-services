@@ -1,4 +1,9 @@
-/** In-memory summary store keyed by user sub (v1). */
+/** Per-user summaries — persisted to data/user-data.json (no seed data). */
+
+import {
+  loadUserData,
+  mutateUserData,
+} from "./userDataPersistence.js";
 
 export interface FollowUpMessage {
   id: string;
@@ -20,9 +25,12 @@ export interface SummaryRecord {
   followUps: FollowUpMessage[];
   createdAt: string;
   updatedAt: string;
+  selectionContextId?: string;
+  pageContextId?: string;
+  isAutoSummary?: boolean;
 }
 
-const summariesByUser = new Map<string, SummaryRecord[]>();
+let idCounter = Date.now();
 
 function hostFromUrl(url: string): string {
   try {
@@ -32,87 +40,21 @@ function hostFromUrl(url: string): string {
   }
 }
 
-function seedForUser(userId: string): void {
-  if (summariesByUser.has(userId)) return;
-
-  const now = Date.now();
-  const samples: Omit<SummaryRecord, "id" | "userId">[] = [
-    {
-      title: "React Server Components overview",
-      originalText:
-        "Server Components run on the server and can fetch data directly without useEffect...",
-      summaryText:
-        "RSC lets you fetch on the server and stream UI to the client, reducing client bundle size and waterfall requests.",
-      sourceUrl: "https://react.dev/reference/rsc/server-components",
-      website: "react.dev",
-      tags: ["react", "frontend"],
-      pinned: true,
-      followUps: [
-        {
-          id: "f1",
-          role: "user",
-          content: "When should I use client components instead?",
-          createdAt: new Date(now - 3600000).toISOString(),
-        },
-        {
-          id: "f2",
-          role: "assistant",
-          content:
-            "Use client components when you need interactivity, browser APIs, or local state.",
-          createdAt: new Date(now - 3500000).toISOString(),
-        },
-      ],
-      createdAt: new Date(now - 86400000 * 2).toISOString(),
-      updatedAt: new Date(now - 86400000 * 2).toISOString(),
-    },
-    {
-      title: "Tailwind v4 migration notes",
-      originalText: "Tailwind CSS v4 uses @import tailwindcss and a new Vite plugin...",
-      summaryText:
-        "v4 simplifies setup with a single CSS import and native Vite integration; config moves toward CSS-first.",
-      sourceUrl: "https://tailwindcss.com/docs",
-      website: "tailwindcss.com",
-      tags: ["css", "tooling"],
-      pinned: false,
-      followUps: [],
-      createdAt: new Date(now - 86400000).toISOString(),
-      updatedAt: new Date(now - 86400000).toISOString(),
-    },
-    {
-      title: "Chrome extension MV3 service workers",
-      originalText:
-        "Manifest V3 replaces background pages with service workers that may terminate...",
-      summaryText:
-        "MV3 service workers are event-driven and short-lived; persist state in chrome.storage and use offscreen documents when needed.",
-      sourceUrl: "https://developer.chrome.com/docs/extensions/mv3/service_workers/",
-      website: "developer.chrome.com",
-      tags: ["chrome", "extension"],
-      pinned: true,
-      followUps: [],
-      createdAt: new Date(now - 43200000).toISOString(),
-      updatedAt: new Date(now - 43200000).toISOString(),
-    },
-  ];
-
-  summariesByUser.set(
-    userId,
-    samples.map((s, i) => ({
-      ...s,
-      id: `sum_${userId.slice(0, 6)}_${i + 1}`,
-      userId,
-    }))
-  );
+async function listForUser(userId: string): Promise<SummaryRecord[]> {
+  const data = await loadUserData();
+  return (data.summaries[userId] as SummaryRecord[] | undefined) ?? [];
 }
 
-function listForUser(userId: string): SummaryRecord[] {
-  seedForUser(userId);
-  return summariesByUser.get(userId)!;
+function saveList(userId: string, list: SummaryRecord[]): void {
+  mutateUserData((data) => {
+    data.summaries[userId] = list;
+  });
 }
 
-let idCounter = 1000;
+let followId = 0;
 
 export const summaryStore = {
-  list(
+  async list(
     userId: string,
     opts: {
       search?: string;
@@ -123,10 +65,10 @@ export const summaryStore = {
       page?: number;
       limit?: number;
     }
-  ): { items: SummaryRecord[]; total: number; page: number; limit: number } {
+  ): Promise<{ items: SummaryRecord[]; total: number; page: number; limit: number }> {
     const page = opts.page ?? 1;
     const limit = opts.limit ?? 20;
-    let items = [...listForUser(userId)];
+    let items = [...(await listForUser(userId))];
 
     if (opts.status === "pinned") items = items.filter((s) => s.pinned);
     if (opts.status === "unpinned") items = items.filter((s) => !s.pinned);
@@ -165,15 +107,14 @@ export const summaryStore = {
     return { items: items.slice(start, start + limit), total, page, limit };
   },
 
-  get(userId: string, id: string): SummaryRecord | undefined {
-    return listForUser(userId).find((s) => s.id === id);
+  async get(userId: string, id: string): Promise<SummaryRecord | undefined> {
+    return (await listForUser(userId)).find((s) => s.id === id);
   },
 
-  create(
+  async create(
     userId: string,
     data: Omit<SummaryRecord, "id" | "userId" | "createdAt" | "updatedAt">
-  ): SummaryRecord {
-    seedForUser(userId);
+  ): Promise<SummaryRecord> {
     const now = new Date().toISOString();
     const record: SummaryRecord = {
       ...data,
@@ -183,45 +124,101 @@ export const summaryStore = {
       createdAt: now,
       updatedAt: now,
     };
-    listForUser(userId).unshift(record);
+    const list = await listForUser(userId);
+    list.unshift(record);
+    saveList(userId, list);
     return record;
   },
 
-  update(
+  /** Upsert by selectionContextId — used when extension/chat saves the same highlight. */
+  async upsertFromChat(
+    userId: string,
+    data: Omit<SummaryRecord, "id" | "userId" | "createdAt" | "updatedAt"> & {
+      userMessage: string;
+    }
+  ): Promise<SummaryRecord> {
+    const list = await listForUser(userId);
+    const selId = data.selectionContextId;
+    const existing = selId
+      ? list.find((s) => s.selectionContextId === selId)
+      : undefined;
+
+    const now = new Date().toISOString();
+
+    if (existing && !data.isAutoSummary) {
+      existing.summaryText = data.summaryText;
+      existing.updatedAt = now;
+      existing.followUps.push(
+        {
+          id: `f_${++followId}`,
+          role: "user",
+          content: data.userMessage,
+          createdAt: now,
+        },
+        {
+          id: `f_${++followId}`,
+          role: "assistant",
+          content: data.summaryText,
+          createdAt: now,
+        }
+      );
+      saveList(userId, list);
+      return existing;
+    }
+
+    if (existing && data.isAutoSummary) {
+      existing.summaryText = data.summaryText;
+      existing.originalText = data.originalText;
+      existing.title = data.title;
+      existing.updatedAt = now;
+      saveList(userId, list);
+      return existing;
+    }
+
+    const { userMessage: _msg, ...record } = data;
+    return this.create(userId, record);
+  },
+
+  async update(
     userId: string,
     id: string,
     patch: Partial<Pick<SummaryRecord, "title" | "tags">>
-  ): SummaryRecord | undefined {
-    const item = this.get(userId, id);
+  ): Promise<SummaryRecord | undefined> {
+    const list = await listForUser(userId);
+    const item = list.find((s) => s.id === id);
     if (!item) return undefined;
     if (patch.title !== undefined) item.title = patch.title;
     if (patch.tags !== undefined) item.tags = patch.tags;
     item.updatedAt = new Date().toISOString();
+    saveList(userId, list);
     return item;
   },
 
-  togglePin(userId: string, id: string): SummaryRecord | undefined {
-    const item = this.get(userId, id);
+  async togglePin(userId: string, id: string): Promise<SummaryRecord | undefined> {
+    const list = await listForUser(userId);
+    const item = list.find((s) => s.id === id);
     if (!item) return undefined;
     item.pinned = !item.pinned;
     item.updatedAt = new Date().toISOString();
+    saveList(userId, list);
     return item;
   },
 
-  delete(userId: string, id: string): boolean {
-    const list = listForUser(userId);
+  async delete(userId: string, id: string): Promise<boolean> {
+    const list = await listForUser(userId);
     const idx = list.findIndex((s) => s.id === id);
     if (idx === -1) return false;
     list.splice(idx, 1);
+    saveList(userId, list);
     return true;
   },
 
-  stats(userId: string): {
+  async stats(userId: string): Promise<{
     totalSummaries: number;
     pinnedCount: number;
     websitesThisWeek: number;
-  } {
-    const items = listForUser(userId);
+  }> {
+    const items = await listForUser(userId);
     const weekAgo = Date.now() - 7 * 86400000;
     const recent = items.filter((s) => new Date(s.createdAt).getTime() >= weekAgo);
     const hosts = new Set(recent.map((s) => s.website));
@@ -232,17 +229,16 @@ export const summaryStore = {
     };
   },
 
-  recentActivity(
+  async recentActivity(
     userId: string,
     limit = 5
-  ): Array<{ id: string; title: string; action: string; at: string }> {
-    return listForUser(userId)
-      .slice(0, limit)
-      .map((s) => ({
-        id: s.id,
-        title: s.title,
-        action: s.pinned ? "pinned" : "created",
-        at: s.updatedAt,
-      }));
+  ): Promise<Array<{ id: string; title: string; action: string; at: string }>> {
+    const items = await listForUser(userId);
+    return items.slice(0, limit).map((s) => ({
+      id: s.id,
+      title: s.title,
+      action: s.pinned ? "pinned" : "created",
+      at: s.updatedAt,
+    }));
   },
 };

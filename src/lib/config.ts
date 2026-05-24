@@ -20,8 +20,14 @@ export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   openaiChatModel: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini",
   openaiMaxTokens: Number(process.env.OPENAI_MAX_TOKENS ?? 1024),
-  /** When true, /chat returns registered extraction only — no OpenAI call. */
-  echoExtractionOnly: process.env.ECHO_EXTRACTION_ONLY === "true",
+  /**
+   * When true, /chat returns registered extraction only — no OpenAI call.
+   * Defaults to true (local extraction focus).
+   */
+  echoExtractionOnly: process.env.ECHO_EXTRACTION_ONLY !== "false",
+  /** Web dashboard origin for OAuth redirect after sign-in. */
+  dashboardOrigin:
+    process.env.DASHBOARD_ORIGIN ?? "http://localhost:5174",
 };
 
 export function isOpenAiConfigured(): boolean {

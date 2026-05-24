@@ -13,6 +13,16 @@ export const summaryPatchSchema = z.object({
   tags: z.array(z.string().max(50)).max(20).optional(),
 });
 
+export const summaryCreateBodySchema = z.object({
+  title: z.string().min(1).max(500),
+  originalText: z.string().min(1).max(50_000),
+  summaryText: z.string().min(1).max(50_000),
+  sourceUrl: z.string().url(),
+  selectionContextId: z.string().optional(),
+  pageContextId: z.string().optional(),
+  tags: z.array(z.string().max(50)).max(20).optional(),
+});
+
 export const summaryListQuerySchema = z.object({
   search: z.string().optional(),
   status: z.enum(["pinned", "unpinned", "all"]).optional(),

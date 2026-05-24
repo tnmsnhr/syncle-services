@@ -40,13 +40,20 @@ export function formatExtractedReply(
   const lensBlock = formatContextLensBlock(parsed.contextLens);
   const localBlock = parsed.localContextBlock;
 
-  const lines: string[] = [
-    "_OpenAI disconnected (ECHO_EXTRACTION_ONLY). Showing registered extraction._",
-    "",
-  ];
+  const lines: string[] = [];
+
+  const candidateLines = parsed.selectionEvidence.candidates
+    .slice(0, 8)
+    .map(
+      (c) =>
+        `• ${c.text?.trim() || c.type} (visual ${Math.round(c.visualWeight * 100)}%, ${c.type})`
+    );
+  if (candidateLines.length) {
+    lines.push("**Selection candidates**", candidateLines.join("\n"), "");
+  }
 
   const focus = section(
-    "Selected focus",
+    "Resolved hint (top candidate)",
     parsed.focusText ||
       (parsed.hasVisual ? "(visual selection — image stored, not shown here)" : "(empty)")
   );
@@ -59,13 +66,14 @@ export function formatExtractedReply(
   if (parsed.elementTypes.length) {
     metaLines.push(`elementTypes: ${parsed.elementTypes.join(", ")}`);
   }
-  if (typeof meta.focusConfidence === "number") {
-    metaLines.push(`focus.confidence: ${meta.focusConfidence}`);
+  if (typeof meta.evidenceConfidence === "number") {
+    metaLines.push(`evidenceConfidence: ${meta.evidenceConfidence}`);
+  } else if (typeof meta.focusConfidence === "number") {
+    metaLines.push(`evidenceConfidence: ${meta.focusConfidence}`);
   }
   if (meta.focusExtractionMethod) {
-    metaLines.push(`focus.extractionMethod: ${meta.focusExtractionMethod}`);
+    metaLines.push(`extractionMethod: ${meta.focusExtractionMethod}`);
   }
-  if (meta.focusUncertain === true) metaLines.push("focus.uncertain: true");
   if (meta.extractionStrategy) {
     metaLines.push(`extractionStrategy: ${meta.extractionStrategy}`);
   }
